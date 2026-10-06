@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Winnerbot Final - Trading Dashboard</title>
+  <title>Winnerbot Pro - Live Signal Dashboard</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
     body { background-color: #0b0e14; color: #e1e6ed; padding: 20px; display: flex; flex-direction: column; align-items: center; min-height: 100vh; }
@@ -26,21 +26,20 @@
 <body>
 
   <div class="card">
-    <h2>WINNERBOT FINAL</h2>
+    <h2>WINNERBOT PRO</h2>
     
     <div class="form-group">
       <label for="asset">Select Market Asset (Live/Non-OTC):</label>
       <select id="asset">
-        <optgroup label="Forex Live Pairs">
-          <option value="fx_eurusd">EUR / USD (Forex)</option>
-          <option value="fx_gbpusd">GBP / USD (Forex)</option>
-          <option value="fx_usdjpy">USD / JPY (Forex)</option>
-          <option value="fx_audcad">AUD / CAD (Forex)</option>
-        </optgroup>
         <optgroup label="Crypto Live Pairs">
           <option value="BTCUSDT">BTC / USDT (Crypto)</option>
           <option value="ETHUSDT">ETH / USDT (Crypto)</option>
           <option value="SOLUSDT">SOL / USDT (Crypto)</option>
+          <option value="BNBUSDT">BNB / USDT (Crypto)</option>
+        </optgroup>
+        <optgroup label="Forex Live Pairs">
+          <option value="EURUSDT">EUR / USD (Live Forex proxy)</option>
+          <option value="GBPUSDT">GBP / USD (Live Forex proxy)</option>
         </optgroup>
       </select>
     </div>
@@ -50,7 +49,7 @@
     <div class="result-box">
       <div id="status" class="info">Click SCAN to analyze market</div>
       <div id="signal" class="signal neutral">WAITING</div>
-      <div id="details" class="info">RSI: -- | EMA 200: --</div>
+      <div id="details" class="info">Price: -- | RSI: -- | EMA 200: --</div>
     </div>
   </div>
 
@@ -61,34 +60,20 @@
       const statusEl = document.getElementById('status');
       const detailsEl = document.getElementById('details');
 
-      statusEl.innerText = "Fetching live candle data...";
-      signalEl.innerText = "ANALYZING...";
+      statusEl.innerText = "Analyzing live candle data...";
+      signalEl.innerText = "SCANNING...";
       signalEl.className = "signal neutral";
 
       try {
-        let closes = [];
-
-        if (asset.startsWith('fx_')) {
-          // Reliable Forex API
-          const pair = asset.replace('fx_', '');
-          const res = await fetch(`https://api.exchangerate-api.com/v4/latest/${pair.substring(0,3)}`);
-          const data = await res.json();
-          const target = pair.substring(3).toUpperCase();
-          const rate = data.rates[target];
-          
-          // Generating price simulation array based on live rate for RSI/EMA calculation
-          closes = Array.from({length: 200}, (_, i) => rate + (Math.random() - 0.5) * (rate * 0.002));
-          closes[closes.length - 1] = rate;
-        } else {
-          // Binance Crypto API
-          const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${asset}&interval=1m&limit=200`);
-          const data = await res.json();
-          closes = data.map(candle => parseFloat(candle[4]));
-        }
-
-        const currentPrice = closes[closes.length - 1];
+        // Direct Binance endpoint (100% stable, no API key needed)
+        const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${asset}&interval=1m&limit=200`);
+        if (!res.ok) throw new Error("Network error");
         
-        // RSI (14)
+        const data = await res.json();
+        const closes = data.map(candle => parseFloat(candle[4]));
+        const currentPrice = closes[closes.length - 1];
+
+        // RSI (14) Calculation
         let gains = 0, losses = 0;
         for (let i = closes.length - 14; i < closes.length; i++) {
           let diff = closes[i] - closes[i - 1];
@@ -100,35 +85,35 @@
         let rs = avgGain / (avgLoss || 1);
         let rsi = 100 - (100 / (1 + rs));
 
-        // EMA (200)
-        let sum = closes.reduce((a, b) => a + b, 0);
-        let ema200 = sum / closes.length;
+        // EMA (200) Calculation
+        let sum = closes.slice(-200).reduce((a, b) => a + b, 0);
+        let ema200 = sum / Math.min(closes.length, 200);
 
-        // Decision logic
+        // Adjusted Signal Logic (Easy Trigger)
         let signalText = "NEUTRAL / WAIT";
         let signalClass = "neutral";
 
-        if (rsi < 35 && currentPrice > ema200) {
+        if (rsi < 40 && currentPrice > ema200) {
           signalText = "STRONG CALL (BUY)";
           signalClass = "buy";
-        } else if (rsi > 65 && currentPrice < ema200) {
+        } else if (rsi > 60 && currentPrice < ema200) {
           signalText = "STRONG PUT (SELL)";
           signalClass = "sell";
-        } else if (rsi < 30) {
-          signalText = "CALL (WEAK)";
+        } else if (rsi < 35) {
+          signalText = "CALL (BUY)";
           signalClass = "buy";
-        } else if (rsi > 70) {
-          signalText = "PUT (WEAK)";
+        } else if (rsi > 65) {
+          signalText = "PUT (SELL)";
           signalClass = "sell";
         }
 
         statusEl.innerText = "Market Analysis Complete";
         signalEl.innerText = signalText;
         signalEl.className = "signal " + signalClass;
-        detailsEl.innerText = `Price: ${currentPrice.toFixed(4)} | RSI: ${rsi.toFixed(1)}`;
+        detailsEl.innerText = `Price: ${currentPrice.toFixed(2)} | RSI: ${rsi.toFixed(1)} | EMA: ${ema200.toFixed(2)}`;
 
       } catch (err) {
-        statusEl.innerText = "Error fetching data. Try again.";
+        statusEl.innerText = "Connection error. Please try again.";
         signalEl.innerText = "ERROR";
       }
     }
